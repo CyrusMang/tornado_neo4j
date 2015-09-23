@@ -20,10 +20,8 @@ class DatabaseTestCase(AsyncTestCase):
     @gen_test
     def test_cypher_query_with_transaction(self):
         with self.db as transaction:
-            data = yield self.db.queries({
-                'statement': 'MATCH (n:NO_LABLE) RETURN n'
-            },{
-                'statement': 'MATCH (n:NO_NO_LABLE) RETURN n'
-            })
+            test1 = self.db.query('MATCH (n:NO_LABLE) RETURN n')
+            test2 = self.db.query('MATCH (n:NO_LABLE) RETURN n')
         yield transaction
-        self.assertEqual(data, [[],[]])
+        self.assertEqual(test1, [])
+        self.assertEqual(test2, [])

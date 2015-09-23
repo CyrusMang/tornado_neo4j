@@ -71,6 +71,7 @@ class Connection(Future):
         self.request = request
         self.service_root = service_root
         self.entered = 0
+        self.transaction = []
 
     def __enter__(self):
         super(Connection, self).__init__()
@@ -86,41 +87,29 @@ class Connection(Future):
 
     def query(self, query, params=None):
         statement = {
-            'statement': query
+            'statement': query,
+            'parameters': parameters
         }
-        if params:
-            statement['parameters'] = params
-        @gen.coroutine
-        def _asynchronous():
-            response = yield self.queries(statement)
-            if response:
-                return response[0]
-            else:
-                return None
-        return _asynchronous()
-
-    def queries(self, *statements):
-        url = self.service_root['transaction']
         if self.entered == 0:
-            if hasattr(self, '_commit'):
-                url = self._commit
-            else:
-                url = '%s/commit' % url
-        statements = {'statements':list(statements)}
-        @gen.coroutine
-        def _asynchronous():
-            response = yield self.request.fetch(url, 'POST', statements)
-            content = json_decode(response.body)
-            if content.get('errors'):
-                messages = ''
-                for error in content['errors']:
-                    messages += error['message']
-                raise DatabaseError(response.code, messages, response)
-            else:
-                if 'Location' in response.headers:
-                    self._commit = response.headers['Location']
-                results = []
-                for result in content['results']:
+            data = []
+            self.transaction.append([statement, data.extend])
+            return data
+        else:
+            url = self.service_root['transaction']
+            statements = {
+                'statements': [statement]
+            }
+            @gen.coroutine
+            def _asynchronous():
+                response = yield self.request.fetch(url, 'POST', statements)
+                content = json_decode(response.body)
+                if content.get('errors'):
+                    messages = ''
+                    for error in content['errors']:
+                        messages += error['message']
+                    raise DatabaseError(response.code, messages, response)
+                else:
+                    result = content['results'][0]
                     rows = []
                     columns = result['columns']
                     for row in result['data']:
@@ -129,21 +118,27 @@ class Connection(Future):
                             data[columns[index]] = column
                         rows.append(data)
                     results.append(rows)
-                return results
-        return _asynchronous()
+                    return rows
+            return _asynchronous()
 
     def commit(self):
-        if hasattr(self, '_commit'):
-            def _response(response):
-                content = json_decode(response.body)
-                if content.get('errors'):
-                    messages = ''
-                    for error in content['errors']:
-                        messages += error['message']
-                    self.set_exception(DatabaseError(response.code, messages, response))
-                else:
-                    self.set_result(response)
-            url = '%s/commit' % self._commit
-            self.request.fetch(url, 'POST', {'statements':[]}, callback=_response)
-        else:
-            raise Exception('No statement exist.')
+        url = '%s/commit' % self.service_root['transaction']
+        statements = [statement[0] for statement in self.transaction]
+        def _response(response):
+            content = json_decode(response.body)
+            if content.get('errors'):
+                messages = ''
+                for error in content['errors']:
+                    messages += error['message']
+                self.set_exception(DatabaseError(response.code, messages, response))
+            else:
+                for key, result in enumerate(content['results']):
+                    rows = []
+                    for columns in result['columns']:
+                        data = {}
+                        for index, column in enumerate(row['row']):
+                            data[columns[index]] = column
+                        rows.append(data)
+                    self.transaction[key][1](rows)
+                self.set_result(response)
+        self.request.fetch(url, 'POST', {'statements':statements}, callback=_response)
