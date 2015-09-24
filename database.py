@@ -85,16 +85,12 @@ class Connection(Future):
             self.commit()
         self.entered -= 1
 
-    def query(self, query, params=None):
+    def query(self, query, **params):
         statement = {
             'statement': query,
-            'parameters': parameters
+            'parameters': params
         }
         if self.entered == 0:
-            data = []
-            self.transaction.append([statement, data.extend])
-            return data
-        else:
             url = self.service_root['transaction']
             statements = {
                 'statements': [statement]
@@ -117,9 +113,12 @@ class Connection(Future):
                         for index, column in enumerate(row['row']):
                             data[columns[index]] = column
                         rows.append(data)
-                    results.append(rows)
                     return rows
             return _asynchronous()
+        else:
+            data = []
+            self.transaction.append([statement, data.extend])
+            return data
 
     def commit(self):
         url = '%s/commit' % self.service_root['transaction']
@@ -134,11 +133,13 @@ class Connection(Future):
             else:
                 for key, result in enumerate(content['results']):
                     rows = []
-                    for columns in result['columns']:
+                    columns = result['columns']
+                    for row in result['data']:
                         data = {}
                         for index, column in enumerate(row['row']):
                             data[columns[index]] = column
                         rows.append(data)
                     self.transaction[key][1](rows)
+                del self.transaction[:]
                 self.set_result(response)
         self.request.fetch(url, 'POST', {'statements':statements}, callback=_response)
