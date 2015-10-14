@@ -74,7 +74,6 @@ class Connection(Future):
         self.transaction = []
 
     def __enter__(self):
-        super(Connection, self).__init__()
         self.entered += 1
         return self
 
@@ -82,7 +81,10 @@ class Connection(Future):
         if type and isinstance(type, Exception):
             raise type
         if self.entered == 1:
+            self._done = False
             self.commit()
+        else:
+            self._done = True
         self.entered -= 1
 
     def query(self, query, **params):
